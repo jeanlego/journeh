@@ -4,7 +4,7 @@ JOURNAL_DIR="~/.journeh"
 DATE="$(date -u +%F)"
 
 # init essential directories
-[ ! -d $JOURNAL_DIR ] && mkdir $ENTRY_DIR
+[ ! -d $JOURNAL_DIR ] && mkdir $JOURNAL_DIR
 
 function new_entry() {
 	touch $1
@@ -34,7 +34,7 @@ function weekly() {
 		printf "\n## %s\n" $(date -u -d "$file_date" +%A) >> $JOURNAL_DIR/.$WEEK_NAME.md
 		if [ -f $file_date ];
 		then
-			cat $JOURNAL_DIR/$file_date.md >> $ENTRY_DIR/.$WEEK_NAME.md
+			cat $JOURNAL_DIR/$file_date.md >> $JOURNAL_DIR/.$WEEK_NAME.md
 		fi
 	done
 
