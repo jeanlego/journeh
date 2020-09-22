@@ -1,29 +1,21 @@
 #!/bin/bash
 
-JOURNAL_DIR="~/.journeh"
+JOURNAL_DIR="$HOME/.journeh"
 DATE="$(date -u +%F)"
-
-# init essential directories
-[ ! -d $JOURNAL_DIR ] && mkdir $JOURNAL_DIR
 
 function new_entry() {
 	touch $1
 	vim "+normal G$" +startinsert $1
 	git add .
-	git commit -m "update file $DATE"
 }
 
 function daily() {
-	[ "_${*:2}" != "_" ] && DATE=$(date -u -d "${*:2}" +%F)
-	
 	new_entry "$JOURNAL_DIR/$DATE.md"
-	git add .
+	
         git commit -m "update daily entry $DATE"
-	git push
 }
 
 function weekly() {
-	[ "_${*:2}" != "_" ] && DATE=$(date -u -d "${*:2}" +%F)       
 	FIRST_DAY=$(date -u -d "sunday - $(( $(date -u +%s) - $(date -u -d "$DATE" +%s) ) / 86400 )) days" +%F)
 	WEEK_NAME=$(date -u -d "$file_date" +%Y-%V)
 	printf "# %s\n" $WEEK_NAME > $JOURNAL_DIR/.$WEEK_NAME.md
@@ -41,19 +33,30 @@ function weekly() {
 	echo "## Weekly Summary" > $JOURNAL_DIR/.$WEEK_NAME.md 
 	awk '/## Weekly Summary/,EOF' | tail -n +2 >> $JOURNAL_DIR/.$WEEK_NAME.md
 	mv -f $JOURNAL_DIR/.$WEEK_NAME.md $JOURNAL_DIR/$WEEK_NAME.md
+	
 	new_entry "$JOURNAL_DIR/$WEEK_NAME.md"
 
-	git add .
         git commit -m "update weekly entry for week $WEEK_NAME starting on $FIRST_DAY"
-	git push
 }
 
+if [ "_$1" != "_init" ] && [ ! -d ${JOURNAL_DIR} ];
+then
+	echo "Your journal directory has not been initialized, please run 'init <repo url>' first"
+fi
+
 case "_$1" in
+	_init)
+		git clone $2 ${JOURNAL_DIR}
+		;;
 	_day)
-		new_entry $DATE "${2//[^0-9\+\-]/}"
+		[ "_${*:2}" != "_" ] && DATE=$(date -u -d "${*:2}" +%F)
+		daily $DATE
+		git push
 		;;
 	_week)
-		new_entry $DATE "${2//[^0-9\+\-]/}"
+		[ "_${*:2}" != "_" ] && DATE=$(date -u -d "${*:2}" +%F)
+		weekly $DATE
+		git push
 		;;
 	_help|_)
 		echo "
