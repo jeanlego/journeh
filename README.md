@@ -13,7 +13,7 @@
 
 ## Usage
 
-journ
+journ  
     `init <git url>`                  this will init the repo for remote backup.  
     `day  [date -d arguments]`        create a daily journal entry.  
     `week [date -d arguments]`        create a weekly-end journal entry.  
