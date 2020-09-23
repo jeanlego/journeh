@@ -47,6 +47,14 @@ Journ week next Monday # or any day that next week
 
 ```
 
+New journal entry will be populated from the template.md located in `$HOME/.journeh`, then $PWD, then where the source for the tool is located.
+The template.md is bash expanded upon usage for each new entry.
+The variable is used with $VAR or ${VAR}.
+
+The following variables are currently exposed:
+
+PERIOD, the current period value (for a day, full date, a week, the week number, etc...)
+
 ## Outro
 
 Now go out there buddy, and show the world how neat and tidy your life is (just don't let them look at the pile of dishes).
