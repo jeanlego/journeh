@@ -14,13 +14,13 @@
 ## Usage
 
 journ
-    `init <git url>`                  this will init the repo for remote backup
-    `day  [date -d arguments]`        create a daily journal entry
-    `week [date -d arguments]`        create a weekly-end journal entry    
-    `month [date -d arguments]`       create a month-end journal entry
-    `quarter [date -d arguments]`     create a quarter-end journal entry
-    `year [date -d arguments]`        create a year-end journal entry
-    `help`                            this
+    `init <git url>`                  this will init the repo for remote backup.  
+    `day  [date -d arguments]`        create a daily journal entry.  
+    `week [date -d arguments]`        create a weekly-end journal entry.  
+    `month [date -d arguments]`       create a month-end journal entry.  
+    `quarter [date -d arguments]`     create a quarter-end journal entry.  
+    `year [date -d arguments]`        create a year-end journal entry.  
+    `help`                            this.  
 
 ## Outro
 
