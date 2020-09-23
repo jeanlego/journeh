@@ -1,77 +1,101 @@
 #!/bin/bash
 
 JOURNAL_DIR="$HOME/.journeh"
-DATE="$(date -u +%F)"
+DATE="$(date +%F)"
 
-function new_entry() {
-	printf "%s\n\n" "${*:2}" > $JOURNAL_DIR/.$1.md
-        awk "/$2/,EOF" $JOURNAL_DIR/$1.md | tail -n +2 >> $JOURNAL_DIR/.$1.md
-	
-	vim "+normal G$" +startinsert $JOURNAL_DIR/.$1.md
-	if ! wdiff -1 -2 -3 -n \
-  	 -w $'\033[30;31m' -x $'\033[0m' \
-  	 -y $'\033[30;32m' -z $'\033[0m' \
-	 $JOURNAL_DIR/$1.md $JOURNAL_DIR/.$1.md &> /dev/null;
-	then
-		mv -f $JOURNAL_DIR/.$1.md $JOURNAL_DIR/$1.md
-		git add .
-		git commit -m "update $2"
-		git push
-	fi
+function init_file() {
+    if [ ! -f "$JOURNAL_DIR/$1.md" ];
+    then
+        printf "# %s\n\n" "$1" >> "$JOURNAL_DIR/$1.md"
+    fi
 }
 
 function daily() {
-	new_entry "$DATE" "# Entry $DATE"
+    init_file "$DATE"
+    vim "+normal G$" "$JOURNAL_DIR/$DATE.md"
 }
 
-function weekly() {
-	FIRST_DAY=$(date -u -d "sunday - $(( $(date -u +%s) - $(date -u -d "$DATE" +%s) ) / 86400 )) days" +%F)
-	WEEK_NAME=$(date -u -d "$file_date" +%Y-%V)
-	printf "# %s\n" "$WEEK_NAME" > $JOURNAL_DIR/.$WEEK_NAME.md
-	
-	for $(( i=0; i<7; i += 1 ));
-	do
-		file_date=$(date -u -d "$FIRST_DAY + $i" days)
-		printf "\n## %s\n" $(date -u -d "$file_date" +%A) >> $JOURNAL_DIR/.$WEEK_NAME.md
-		if [ -f $file_date ];
-		then
-			# drop the header
-		        awk "/# /,EOF" $JOURNAL_DIR/$file_date.md | tail -n +2 >> $JOURNAL_DIR/.$WEEK_NAME.md
-		fi
-	done
-	
-	new_entry "$WEEK_NAME" "## Weekly Summary"
+function periodic() {
+    FIRST_DAY=$(date -d "$DATE - $(date -d "$DATE - 1 days" +"$2") days" +%F)
+    PERIOD_NAME=$(date -d "$DATE" +"%Y-$1$3")
+    echo "period -- $4"
+    # import all the files into one
+    for (( i=0; i<=$4; i += 1 ));
+    do
+        filename="$(date -d "$FIRST_DAY + $i days" +%F)"
+        if (( i == $4 ));
+        then
+            filename=$PERIOD_NAME
+        fi
+
+        init_file "$filename"
+        {
+            [ -n "$(tail -c1 "$JOURNAL_DIR/$filename.md")" ] && printf "\n"
+            printf "<!--BEGIN-%s-->\n" "$filename";
+            cat "$JOURNAL_DIR/$filename.md";
+        } >> "$JOURNAL_DIR/.$PERIOD_NAME.md"
+    done
+    
+    # open for changes
+    vim "+normal G$" "$JOURNAL_DIR/.$PERIOD_NAME.md"
+
+    filename=""
+    while IFS="" read -r lines || [ -n "$lines" ]
+    do
+        case "$lines" in
+            '<!--BEGIN-'*'-->')
+                lines=${lines/<\!--BEGIN-/} 
+                lines=${lines/-->/} 
+                filename="$JOURNAL_DIR/$lines.md"
+                rm "$filename"
+            ;;
+            *)
+                echo "$lines" >> "$filename"
+            ;;
+        esac
+    done < "$JOURNAL_DIR/.$PERIOD_NAME.md"
 }
 
-if [ "_$1" != "_init" ] && [ ! -d ${JOURNAL_DIR} ];
+if [ "_$1" != "_init" ] && [ ! -d "$JOURNAL_DIR" ];
 then
-	echo "Your journal directory has not been initialized, please run 'init <repo url>' first"
+    echo "Your journal directory has not been initialized, please run 'init <repo url>' first"
 else
-	cd ${JOURNAL_DIR}
-	# clean old temp files
-	rm ./.*.md &> /dev/null
+    cd "$JOURNAL_DIR" || exit
+    # clean old temp files
+    rm ./.*.md &> /dev/null
 fi
 
 case "_$1" in
-	_init)
-		git clone $2 ${JOURNAL_DIR}
-		;;
-	_day)
-		[ "_${*:2}" != "_" ] && DATE=$(date -u -d "${*:2}" +%F)
-		daily $DATE
-		;;
-	_week)
-		[ "_${*:2}" != "_" ] && DATE=$(date -u -d "${*:2}" +%F)
-		weekly $DATE
-		;;
-	_help|_)
-		echo "
-		Usage:
-			new
-			help
-			"
-		;;
+    _init)
+        git clone "$2" "$JOURNAL_DIR"
+        exit
+        ;;
+    _day)
+        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+        daily
+        ;;
+    _week)
+        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+        periodic "W" "%u" "%W" 7
+        ;;
+    _month)
+        days_in_month=$(cal "$DATE" | awk 'NF {DAYS = $NF}; END {print DAYS}')
+        periodic "M" "%d" "%m" "$days_in_month"
+        ;;
+    _help|_)
+        echo "
+        Usage:
+            new
+            help
+            "
+        exit 0
+        ;;
 esac
 
-	
+git add .
+git commit -m "update $1 of $DATE"
+git push
+
+
+    
 
