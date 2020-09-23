@@ -142,7 +142,7 @@ case "_$1" in
         exit 1
         ;;
     _*)
-        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+        DATE=$(date -d "$*" +%F)
         daily
         ;;
 esac
