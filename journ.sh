@@ -85,6 +85,9 @@ case "_$1" in
         git clone "$2" "$JOURNAL_DIR"
         exit
         ;;
+    _)
+        daily
+        ;;
     _day)
         [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
         daily
@@ -113,18 +116,34 @@ case "_$1" in
         days_in_year=365 # dont bother with the odd year
         periodic "1" "" "" "$days_in_year"
         ;;
-    _help|_)
+    _help)
         echo "
-        Usage:
-            init <git url>                  this will init the repo for remote backup
-            day  [date -d arguments]        create a daily journal entry
-            week [date -d arguments]        create a weekly-end journal entry    
-            month [date -d arguments]       create a month-end journal entry
-            quarter [date -d arguments]     create a quarter-end journal entry
-            year [date -d arguments]        create a year-end journal entry
-            help                            this
+    Usage:
+        init <git url>                               this will init the repo for remote backup
+        day  [date -d arguments]                     create a daily journal entry
+        week [date -d arguments]                     create a weekly-end journal entry    
+        month [date -d arguments]                    create a month-end journal entry
+        quarter [date -d arguments]                  create a quarter-end journal entry
+        year [date -d arguments]                     create a year-end journal entry
+        [date -d arguments] to [date -d arguments]   create a ranged journal entry
+        [date -d arguments] from [date -d arguments] create a relative from ranged journal entry
+        [date -d arguments]                          create a daily journal entry for date
+        <blank>                                      create a daily journal entry for today                
+        help                                         this
             "
         exit 0
+        ;;
+    _*' to '*)
+        echo "Unsupported yet"
+        exit 1
+        ;;
+    _*' from '*)
+        echo "Unsupported yet"
+        exit 1
+        ;;
+    _*)
+        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+        daily
         ;;
 esac
 
