@@ -1,8 +1,20 @@
 #!/bin/bash
 
+# are set internally but exposed
+DATE=""
+ENTRY_NAME=""
+FROM=""
+TO=""
+
+# can be overriden by conf later
 THIS_DIR=$(dirname $(readlink -f $0))
 JOURNAL_DIR="$HOME/.journeh"
-DATE="$(date +%F)"
+CONTEXT_BEFORE=1
+CONTEXT_AFTER=1
+# CONTEXT=1
+AT_TOP=1
+OLDEST_FIRST=0
+
 
 function init_file() {
     if [ ! -f "$1" ];
@@ -22,38 +34,7 @@ function init_file() {
     fi
 }
 
-function daily() {
-    PERIOD="$DATE"
-    init_file "$JOURNAL_DIR/$DATE.md"
-
-    vim "+normal G$" "$JOURNAL_DIR/$DATE.md"
-}
-
-function periodic() {
-    PERIOD=$(date -d "$DATE" +"%Y$2$3")
-    # import all the files into one
-    for (( i=0; i<=$4; i += 1 ));
-    do
-        filename="$(date -d "$1 + $i days" +%F)"
-        if (( i == $4 ));
-        then
-            filename=$PERIOD
-            init_file "$JOURNAL_DIR/$PERIOD.md"
-        fi
-
-        if [ -f "$JOURNAL_DIR/$filename.md" ];
-            then
-            {
-                [ -n "$(tail -c1 "$JOURNAL_DIR/$filename.md")" ] && printf "\n"
-                printf "<!--BEGIN-%s-->\n" "$filename";
-                cat "$JOURNAL_DIR/$filename.md";
-            } >> "$JOURNAL_DIR/.$PERIOD.md"    
-        fi
-    done
-    
-    # open for changes
-    vim "+normal G$" "$JOURNAL_DIR/.$PERIOD.md"
-
+function write_back() {
     filename=""
     while IFS="" read -r lines || [ -n "$lines" ]
     do
@@ -68,7 +49,183 @@ function periodic() {
                 echo "$lines" >> "$filename"
             ;;
         esac
-    done < "$JOURNAL_DIR/.$PERIOD.md"
+    done < "$1"
+}
+
+function load_entry() {
+    {
+        [ -f "$JOURNAL_DIR/$1.md" ] && [ -n "$(tail -c1 "$JOURNAL_DIR/$1.md")" ] &&\
+            echo "";
+        echo "<!--BEGIN-$1-->";
+        [ -f "$JOURNAL_DIR/$1.md" ] &&\
+            cat "$JOURNAL_DIR/$1.md";
+    } >> "$2";  
+}
+
+function split() {
+    read -r input
+    delimiter="$*"
+    input="$input$delimiter" 
+    while [[ $input ]]; do
+        echo "${input%%"$delimiter"*}"
+        input=${input#*"$delimiter"}
+    done
+}
+
+function parse_args() {
+    FROM="$(date +%F)"
+    TO="${FROM}"
+
+    case "_$1" in
+        _)
+            ;;
+        _day)
+            [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+            FROM=${DATE}
+            TO="${FROM}"
+            ;;
+        _week)
+            [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+            FROM=$(date -d "$DATE - $(date -d "$DATE" +%u) days" +%F)
+            TO=$(date -d "$FROM + 6 days" +%F)
+            ;;
+        _month)
+            [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+            local _days_in_month
+            _days_in_month=$(cal "$DATE" | awk 'NF {DAYS = $NF}; END {print DAYS}')
+            FROM=$(date -d "$DATE" +"%Y-%m-01")
+            TO=$(date -d "$DATE" +"%Y-%m-$_days_in_month")
+            ;;
+        _quarter)
+            [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+            local _quarter_len
+            local _last_day_of_quarter
+            local _year
+            _quarter_len=91
+            _last_day_of_quarter=$(( _quarter_len  * $(date -d "$DATE" +%q) ))
+            _year=$(date -d "$DATE" +"%Y")
+            TO=$(date -d "$_year-01-01 + $_last_day_of_quarter days" +"%F")
+            FROM=$(date -d "$TO - $_quarter_len days" +%F)
+            ;;
+        _year)
+            [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
+            local _year
+            _year=$(date -d "$DATE" +"%Y")
+            FROM=$(date -d "$_year-01-01" +"%F")
+            TO=$(date -d "$_year-12-31" +"%F")
+            ;;
+
+        _*)
+            case "_$*" in
+                _*' to '*)
+                    mapfile -t values <<< "$(echo "$*" | split " to ")"
+                    FROM="$(date -d"${values[0]}" +%s)"
+                    TO="$(date -d"${values[1]}" +%s)"
+
+                    ;;
+                _*' from '*)
+                    mapfile -t values <<< "$(echo "$*" | split " from ")"
+                    FROM="$(date -d"${values[0]}" +%s)"
+                    TO="$(date -d"$DATE ${values[1]}" +%s)"
+                    ;;
+                _*)
+                    FROM="$(date -d"$*" +%s)"
+                    TO="$FROM"
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+function journeh() {
+    if (( FROM  > TO ));
+    then
+        local _tmp_date
+        _tmp_date=$FROM
+        FROM=$TO
+        TO=$_tmp_date                    
+    fi
+    local _diff_days
+    _diff_days=$(( ( TO - FROM ) / 86400 ))
+    # convert back
+    FROM=$(date -d"@$FROM" +%F)
+    TO=$(date -d"@$TO" +%F)
+
+    local _context_before_end
+    local _context_after_start
+    _context_before_end=1
+    _context_after_start=1
+    if [ "_${_diff_days}" == "_0" ];
+    then
+        DATE="${FROM}"
+        ENTRY_NAME="${DATE}"
+    else
+        # override context
+        if [[ "_$AT_TOP"  == "_$OLDEST_FIRST" ]]
+        then
+            CONTEXT_BEFORE="${_diff_days}"
+            _context_before_end=0
+            DATE="${TO}"
+            CONTEXT_AFTER=0
+        else
+            CONTEXT_BEFORE=0
+            DATE="${FROM}"
+            CONTEXT_AFTER="${_diff_days}"
+            _context_after_start=0
+        fi
+
+        ENTRY_NAME="${FROM}_to_${TO}"
+    fi
+
+    local _tmp_file
+    _tmp_file=$(mktemp --suffix=.md)
+
+    if [ "$OLDEST_FIRST" == "0" ];
+    then
+        # import all the previous context
+        for (( i = CONTEXT_BEFORE; i >= _context_before_end; i -= 1 ));
+        do
+            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" 
+        done
+
+        init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
+        load_entry "$ENTRY_NAME" "$_tmp_file" 
+
+        # import all the previous context
+        for (( i = _context_after_start; i <= CONTEXT_AFTER; i += 1 ));
+        do
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file" 
+        done
+    else
+        # import all the previous context
+        for (( i = CONTEXT_AFTER; i >= _context_after_start; i -= 1 ));
+        do
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file" 
+        done
+
+        init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
+        load_entry "$ENTRY_NAME" "$_tmp_file" 
+
+        # import all the previous context
+        for (( i = _context_before_end; i <= CONTEXT_BEFORE; i += 1 ));
+        do
+            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" 
+        done
+    fi
+
+    if [ "$AT_TOP" == "0" ];
+    then
+        # open for changes and writeback on success
+        vim "+normal G$" "$_tmp_file" && write_back "$_tmp_file"
+    else
+        # open for changes and writeback on success
+        vim "$_tmp_file" && write_back "$_tmp_file"
+    fi
+
+    git add .
+    git commit -m "update $ENTRY_NAME"
+    git push
+
 }
 
 if [ "_$1" != "_init" ] && [ ! -d "$JOURNAL_DIR" ];
@@ -76,45 +233,12 @@ then
     echo "Your journal directory has not been initialized, please run 'init <repo url>' first"
 else
     cd "$JOURNAL_DIR" || exit
-    # clean old temp files
-    rm ./.*.md &> /dev/null
 fi
+
 
 case "_$1" in
     _init)
         git clone "$2" "$JOURNAL_DIR"
-        exit
-        ;;
-    _)
-        daily
-        ;;
-    _day)
-        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
-        daily
-        ;;
-    _week)
-        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
-        days_in_week=7
-        FIRST_DAY=$(date -d "$DATE - $(date -d "$DATE - 1 days" +%u) days" +%F)
-        periodic "$FIRST_DAY" "-W" "%W" $days_in_week
-        ;;
-    _month)
-        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
-        days_in_month=$(cal "$DATE" | awk 'NF {DAYS = $NF}; END {print DAYS}')
-        FIRST_DAY=$(date -d "$DATE - $(date -d "$DATE - 1 days" +%d) days" +%F)
-        periodic "$FIRST_DAY" "-M" "%m" "$days_in_month"
-        ;;
-    _quarter)
-        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
-        current_quarter="$(date -d "$DATE" +%q)"
-        days_in_quarter=91 # the last two days are throw aways anyways
-        FIRST_DAY=$(( days_in_quarter * ( current_quarter - 1 ) ))
-        periodic "$FIRST_DAY" "-Q" "%q" "$days_in_quarter"
-        ;;
-    _year)
-        [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
-        days_in_year=365 # dont bother with the odd year
-        periodic "1" "" "" "$days_in_year"
         ;;
     _help)
         echo "
@@ -131,26 +255,10 @@ case "_$1" in
         <blank>                                      create a daily journal entry for today                
         help                                         this
             "
-        exit 0
         ;;
-    _*' to '*)
-        echo "Unsupported yet"
-        exit 1
-        ;;
-    _*' from '*)
-        echo "Unsupported yet"
-        exit 1
-        ;;
-    _*)
-        DATE=$(date -d "$*" +%F)
-        daily
+    *)
+        parse_args "${@}"
+        journeh
         ;;
 esac
-
-git add .
-git commit -m "update $1 of $DATE"
-git push
-
-
-    
 
