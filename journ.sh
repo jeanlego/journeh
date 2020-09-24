@@ -195,7 +195,7 @@ function journeh() {
         # import all the previous context
         for (( i = CONTEXT_BEFORE; i >= _context_before_end; i -= 1 ));
         do
-            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" 
+            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" &> /dev/null
         done
 
         init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
@@ -204,13 +204,13 @@ function journeh() {
         # import all the previous context
         for (( i = _context_after_start; i <= CONTEXT_AFTER; i += 1 ));
         do
-            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file" 
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
         done
     else
         # import all the previous context
         for (( i = CONTEXT_AFTER; i >= _context_after_start; i -= 1 ));
         do
-            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file" 
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
         done
 
         init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
@@ -219,7 +219,7 @@ function journeh() {
         # import all the previous context
         for (( i = _context_before_end; i <= CONTEXT_BEFORE; i += 1 ));
         do
-            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" 
+            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file"  &> /dev/null
         done
     fi
 
