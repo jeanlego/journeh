@@ -143,6 +143,8 @@ function parse_args() {
 }
 
 function journeh() {
+
+
     # convert to second
     FROM=$(date -d"${FROM}" +%s)
     TO=$(date -d"${TO}" +%s)
@@ -190,6 +192,9 @@ function journeh() {
     local _line_number
     _line_number=0
 
+    # sync with remote
+    git pull
+    
     if [ "$OLDEST_FIRST" == "0" ];
     then
         # import all the previous context
@@ -226,6 +231,7 @@ function journeh() {
     # open for changes and writeback on success
     vim +"$_line_number" "$_tmp_file" && write_back "$_tmp_file"
 
+    # push sync with remote
     git add .
     git commit -m "update $ENTRY_NAME"
     git push
