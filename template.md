@@ -1,4 +1,4 @@
-# ${PERIOD}
+# ${ENTRY_NAME}
 
 ## Outcome
 

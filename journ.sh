@@ -24,7 +24,7 @@ function init_file() {
         [ ! -f template ] && template="${THIS_DIR}/template.md"
 
         for VARNAME in $(grep -P -o -e '\$[\{]?(\w+)*[\}]?' "$template" | sort -u); do     
-            VARNAME2=$(echo "$VARNAME"| sed -e 's|^\${||g' -e 's|}$||g' -e 's|^\$||g' );
+            VARNAME2=$(echo "$VARNAME"| sed -e 's|^\${||g' -e 's|}$||g' -e 's|^\$[^(]||g' );
             VAR_VALUE2=${!VARNAME2};
 
             if [ "_" != "_$VAR_VALUE2" ]; then
@@ -53,13 +53,18 @@ function write_back() {
 }
 
 function load_entry() {
+    local _starts_at
     {
         [ -f "$JOURNAL_DIR/$1.md" ] && [ -n "$(tail -c1 "$JOURNAL_DIR/$1.md")" ] &&\
             echo "";
         echo "<!--BEGIN-$1-->";
-        [ -f "$JOURNAL_DIR/$1.md" ] &&\
-            cat "$JOURNAL_DIR/$1.md";
     } >> "$2";  
+    _starts_at="$(wc -l "$2" | awk '{print $1}')"
+    {
+            [ -f "$JOURNAL_DIR/$1.md" ] &&\
+            cat "$JOURNAL_DIR/$1.md";
+    } >> "$2"; 
+    echo "$_starts_at"
 }
 
 function split() {
@@ -119,17 +124,17 @@ function parse_args() {
             case "_$*" in
                 _*' to '*)
                     mapfile -t values <<< "$(echo "$*" | split " to ")"
-                    FROM="$(date -d"${values[0]}" +%s)"
-                    TO="$(date -d"${values[1]}" +%s)"
+                    FROM="$(date -d"${values[0]}" +%F)"
+                    TO="$(date -d"${values[1]}" +%F)"
 
                     ;;
                 _*' from '*)
                     mapfile -t values <<< "$(echo "$*" | split " from ")"
-                    FROM="$(date -d"${values[0]}" +%s)"
-                    TO="$(date -d"$DATE ${values[1]}" +%s)"
+                    FROM="$(date -d"${values[0]}" +%F)"
+                    TO="$(date -d"$DATE ${values[1]}" +%F)"
                     ;;
                 _*)
-                    FROM="$(date -d"$*" +%s)"
+                    FROM="$(date -d"$*" +%F)"
                     TO="$FROM"
                     ;;
             esac
@@ -138,6 +143,9 @@ function parse_args() {
 }
 
 function journeh() {
+    # convert to second
+    FROM=$(date -d"${FROM}" +%s)
+    TO=$(date -d"${TO}" +%s)
     if (( FROM  > TO ));
     then
         local _tmp_date
@@ -179,6 +187,8 @@ function journeh() {
 
     local _tmp_file
     _tmp_file=$(mktemp --suffix=.md)
+    local _line_number
+    _line_number=0
 
     if [ "$OLDEST_FIRST" == "0" ];
     then
@@ -189,7 +199,7 @@ function journeh() {
         done
 
         init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
-        load_entry "$ENTRY_NAME" "$_tmp_file" 
+        _line_number="$(load_entry "$ENTRY_NAME" "$_tmp_file")"
 
         # import all the previous context
         for (( i = _context_after_start; i <= CONTEXT_AFTER; i += 1 ));
@@ -204,7 +214,7 @@ function journeh() {
         done
 
         init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
-        load_entry "$ENTRY_NAME" "$_tmp_file" 
+        _line_number="$(load_entry "$ENTRY_NAME" "$_tmp_file")"
 
         # import all the previous context
         for (( i = _context_before_end; i <= CONTEXT_BEFORE; i += 1 ));
@@ -213,14 +223,8 @@ function journeh() {
         done
     fi
 
-    if [ "$AT_TOP" == "0" ];
-    then
-        # open for changes and writeback on success
-        vim "+normal G$" "$_tmp_file" && write_back "$_tmp_file"
-    else
-        # open for changes and writeback on success
-        vim "$_tmp_file" && write_back "$_tmp_file"
-    fi
+    # open for changes and writeback on success
+    vim +"$_line_number" "$_tmp_file" && write_back "$_tmp_file"
 
     git add .
     git commit -m "update $ENTRY_NAME"
