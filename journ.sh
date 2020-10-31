@@ -144,6 +144,8 @@ function parse_args() {
 
 function journeh() {
 
+    git ls-remote &> /dev/null
+    REMOTE=$?
 
     # convert to second
     FROM=$(date -d"${FROM}" +%s)
@@ -193,7 +195,7 @@ function journeh() {
     _line_number=0
 
     # sync with remote
-    git pull
+    [[ -z $REMOTE ]] && git pull
     
     if [ "$OLDEST_FIRST" == "0" ];
     then
@@ -202,25 +204,25 @@ function journeh() {
         do
             load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" &> /dev/null
         done
-
-        init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
-        _line_number="$(load_entry "$ENTRY_NAME" "$_tmp_file")"
-
-        # import all the previous context
-        for (( i = _context_after_start; i <= CONTEXT_AFTER; i += 1 ));
-        do
-            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
-        done
     else
         # import all the previous context
         for (( i = CONTEXT_AFTER; i >= _context_after_start; i -= 1 ));
         do
             load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
         done
+    fi
 
-        init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
-        _line_number="$(load_entry "$ENTRY_NAME" "$_tmp_file")"
+    init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
+    _line_number="$(load_entry "$ENTRY_NAME" "$_tmp_file")"
 
+    if [ "$OLDEST_FIRST" == "0" ];
+    then 
+        # import all the previous context
+        for (( i = _context_after_start; i <= CONTEXT_AFTER; i += 1 ));
+        do
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
+        done
+    else
         # import all the previous context
         for (( i = _context_before_end; i <= CONTEXT_BEFORE; i += 1 ));
         do
@@ -234,21 +236,26 @@ function journeh() {
     # push sync with remote
     git add .
     git commit -m "update $ENTRY_NAME"
-    git push
+    [[ -z $REMOTE ]] && git push
 
 }
 
-if [ "_$1" != "_init" ] && [ ! -d "$JOURNAL_DIR" ];
+
+if [ -d "$JOURNAL_DIR" ]
+then
+    cd "$JOURNAL_DIR"
+elif [ "_$1" != "_init" ]
 then
     echo "Your journal directory has not been initialized, please run 'init <repo url>' first"
-else
-    cd "$JOURNAL_DIR" || exit
 fi
-
 
 case "_$1" in
     _init)
-        git clone "$2" "$JOURNAL_DIR"
+	mkdir -p "$JOURNAL_DIR"
+	pushd "$JOURNAL_DIR"
+	[ ! -d .git ] && git init
+	git ls-remote &> /dev/null && git remote remove origin
+	[ "_$2" != "_" ] && git remote add origin "$2"
         ;;
     _help)
         echo "
