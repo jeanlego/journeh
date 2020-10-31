@@ -43,7 +43,7 @@ function write_back() {
                 lines=${lines/<\!--BEGIN-/} 
                 lines=${lines/-->/} 
                 filename="$JOURNAL_DIR/$lines.md"
-                rm "$filename"
+                rm "$filename" &> /dev/null
             ;;
             *)
                 echo "$lines" >> "$filename"
@@ -234,8 +234,8 @@ function journeh() {
     vim +"$_line_number" "$_tmp_file" && write_back "$_tmp_file"
 
     # push sync with remote
-    git add .
-    git commit -m "update $ENTRY_NAME"
+    git add . &> /dev/null
+    git commit -m "update $ENTRY_NAME" &> /dev/null
     [[ -z $REMOTE ]] && git push
 
 }
