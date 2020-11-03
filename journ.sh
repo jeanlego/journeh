@@ -14,7 +14,8 @@ CONTEXT_AFTER=1
 # CONTEXT=1
 AT_TOP=1
 OLDEST_FIRST=0
-
+# day 1 since, day 0 would break some of the logic
+EPOCH=$(date -d "@1" +%F)
 
 function init_file() {
     if [ ! -f "$1" ];
@@ -84,6 +85,12 @@ function parse_args() {
     case "_$1" in
         _)
             ;;
+        _todo)
+	    # we had things since the beginning of time... let it show
+	    DATE="${EPOCH}"
+	    FROM="${EPOCH}"
+	    TO="${EPOCH}"
+	    ;;
         _day)
             [ "_${*:2}" != "_" ] && DATE=$(date -d "${*:2}" +%F)
             FROM=${DATE}
@@ -169,8 +176,9 @@ function journeh() {
     _context_after_start=1
     if [ "_${_diff_days}" == "_0" ];
     then
-        DATE="${FROM}"
+	DATE="${FROM}"
         ENTRY_NAME="${DATE}"
+	
     else
         # override context
         if [[ "_$AT_TOP"  == "_$OLDEST_FIRST" ]]
@@ -261,6 +269,7 @@ case "_$1" in
         echo "
     Usage:
         init <git url>                               this will init the repo for remote backup
+	todo                                         create/update a rolling todo list
         day  [date -d arguments]                     create a daily journal entry
         week [date -d arguments]                     create a weekly-end journal entry    
         month [date -d arguments]                    create a month-end journal entry
