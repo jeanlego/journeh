@@ -12,7 +12,9 @@ TO=""
 THIS_DIR=$(dirname $(readlink -f $0))
 JOURNAL_DIR="$HOME/.journeh"
 TEMPLATE_NAME=".journ_template"
-TEMPLATE_LOCATION=""
+TEMPLATE_FILE=""
+HOOK_FILE=""
+HOOK=".hook"
 FILE_EXT="md"
 CONTEXT_BEFORE=1
 CONTEXT_AFTER=1
@@ -21,33 +23,35 @@ AT_TOP=1
 OLDEST_FIRST=0
 # day 1 since, day 0 would break some of the logic
 EPOCH=$(date -d "@1" +%F)
-
+EDITOR="${EDITOR:-vim}"
 MODIFIED_FILES=()
 
-function find_template() {
-	find "${1}" -type f -name "${TEMPLATE_NAME}.*" | xargs ls -t | head -n 1
+function find_file() {
+	find "${2}" -type f -name "${1}" | xargs ls -t | head -n 1
 }
 
-function localize_template() {
-        TEMPLATE_LOCATION="$( find_template "${PWD}" )"
-        [ "_" != "_${TEMPLATE_LOCATION}" ] || TEMPLATE_LOCATION="$( find_template "${JOURNAL_DIR}" )"
-        [ "_" != "_${TEMPLATE_LOCATION}" ] || TEMPLATE_LOCATION="$( find_template "${THIS_DIR}" )"
-        FILE_EXT=${TEMPLATE_LOCATION##*.}
+function localize_file() {
+        file_location="$( find_file "${1}" "${PWD}" )"
+        [ "_" != "_${file_location}" ] || file_location="$( find_file "${1}" "${JOURNAL_DIR}" )"
+        [ "_" != "_${file_location}" ] || file_location="$( find_file "${1}" "${THIS_DIR}" )"
+	echo "${file_location}"
 }
 
 function init_file() {
     if [ ! -f "$JOURNAL_DIR/$1.${FILE_EXT}" ]; then
 	touch "$JOURNAL_DIR/$1.${FILE_EXT}"
-        if [ -f "${TEMPLATE_LOCATION}" ]; then
-	    eval "echo \"$(cat ${TEMPLATE_LOCATION})\"" > "$JOURNAL_DIR/$1.${FILE_EXT}"
+        if [ -f "${TEMPLATE_FILE}" ]; then
+	    eval "echo \"$(cat ${TEMPLATE_FILE})\"" > "$JOURNAL_DIR/$1.${FILE_EXT}"
 	fi
     fi
 }
 
 function clone_file() {
     MODIFIED_FILES+=( "$JOURNAL_DIR/$1.${FILE_EXT}" )
-    cat "$JOURNAL_DIR/$1.${FILE_EXT}" > "$JOURNAL_DIR/$1.${FILE_EXT}.swap"
+    printf "" > "$JOURNAL_DIR/$1.${FILE_EXT}.swap"
     printf "" > "$JOURNAL_DIR/$1.${FILE_EXT}.modified"
+    [ -f "$JOURNAL_DIR/$1.${FILE_EXT}" ] &&\
+        cat "$JOURNAL_DIR/$1.${FILE_EXT}" > "$JOURNAL_DIR/$1.${FILE_EXT}.swap"
 }
 
 function write_back() {
@@ -67,13 +71,17 @@ function write_back() {
     done < "$1"
     
     # now check if the modified files don't match the swap files, if so write back
+    wrote_changes=1
     for modified_file in "${MODIFIED_FILES[@]}"; do
         #returns false on diff, making the if a bit counter intuitive
 	if ! diff "${modified_file}.swap" "${modified_file}.modified" -q &>/dev/null; then
             cat "${modified_file}.modified" > "${modified_file}"
+	    wrote_changes=0
         fi
 	rm "${modified_file}.modified" "${modified_file}.swap"
     done
+
+    return "${wrote_changes}"
 
 }
 
@@ -83,10 +91,7 @@ function load_entry() {
         [ -f "$JOURNAL_DIR/$1.${FILE_EXT}" ] && [ -n "$(tail -c1 "$JOURNAL_DIR/$1.${FILE_EXT}")" ] &&\
             echo "";
         echo "<!--BEGIN-$1-->";
-    } >> "$2";  
-    _starts_at="$(wc -l "$2" | awk '{print $1}')"
-    {
-            [ -f "$JOURNAL_DIR/$1.${FILE_EXT}" ] &&\
+        [ -f "$JOURNAL_DIR/$1.${FILE_EXT}" ] &&\
             cat "$JOURNAL_DIR/$1.${FILE_EXT}";
     } >> "$2";
 
@@ -223,11 +228,13 @@ function journeh() {
         ENTRY_NAME="${FROM}_to_${TO}"
     fi
 
+    TEMPLATE_FILE="$(localize_file "${TEMPLATE_NAME}.*")"
+    HOOK_FILE="$(localize_file "${HOOK}")"
+    
+    FILE_EXT=${TEMPLATE_FILE##*.}
     local _tmp_file
     _tmp_file=$(mktemp --suffix=".${FILE_EXT}")
     
-    localize_template 
-
     # sync with remote
     [[ -z $REMOTE ]] && git pull
     
@@ -236,17 +243,23 @@ function journeh() {
         # import all the previous context
         for (( i = CONTEXT_BEFORE; i >= _context_before_end; i -= 1 ));
         do
-            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file" &> /dev/null
+            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file"
         done
     else
         # import all the previous context
         for (( i = CONTEXT_AFTER; i >= _context_after_start; i -= 1 ));
         do
-            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"
         done
     fi
 
-    init_file "$ENTRY_NAME"
+    if [ -t 0 ] && [ -t 1 ]; then
+    	init_file "$ENTRY_NAME"
+    else
+	# if we dont have stdin or stdout then don't run interactive
+	EDITOR=cat
+    fi
+
     load_entry "$ENTRY_NAME" "$_tmp_file"
 
     if [ "$OLDEST_FIRST" == "0" ];
@@ -254,24 +267,32 @@ function journeh() {
         # import all the previous context
         for (( i = _context_after_start; i <= CONTEXT_AFTER; i += 1 ));
         do
-            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"  &> /dev/null
+            load_entry "$(date -d "$DATE + $i days" +%F)" "$_tmp_file"
         done
     else
         # import all the previous context
         for (( i = _context_before_end; i <= CONTEXT_BEFORE; i += 1 ));
         do
-            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file"  &> /dev/null
+            load_entry "$(date -d "$DATE - $i days" +%F)" "$_tmp_file"
         done
     fi
 
     # open for changes and writeback on success
-    "${EDITOR:-vim}" "$_tmp_file" && write_back "$_tmp_file"
+    "${EDITOR}" "$_tmp_file"
+    
+    if write_back "$_tmp_file"; then
 
-    # push sync with remote
-    git add . &> /dev/null
-    git commit -m "update $ENTRY_NAME" &> /dev/null
-    [[ -z $REMOTE ]] && git push
+	    # push sync with remote
+	    git add . &> /dev/null
+	    git commit -m "update $ENTRY_NAME" &> /dev/null
+	    [[ -z $REMOTE ]] && git push
 
+	    if [ -x "${HOOK_FILE}" ]; then
+		${HOOK_FILE}
+	    fi
+
+	    echo "Upated journeh"
+    fi
 }
 
 
@@ -311,7 +332,6 @@ case "_${1:-}" in
     *)
         parse_args "${@}"
         journeh
-	echo "Journal Updated"
         ;;
 esac
 
