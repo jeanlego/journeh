@@ -107,7 +107,7 @@ function parse_args() {
     FROM="$(date +%F)"
     TO="${FROM}"
 
-    case "_$1" in
+    case "_${1:-}" in
         _)
             ;;
         _todo)
@@ -283,7 +283,7 @@ then
     echo "Your journal directory has not been initialized, please run 'init <repo url>' first"
 fi
 
-case "_$1" in
+case "_${1:-}" in
     _init)
 	mkdir -p "$JOURNAL_DIR"
 	pushd "$JOURNAL_DIR"
@@ -311,6 +311,7 @@ case "_$1" in
     *)
         parse_args "${@}"
         journeh
+	echo "Journal Updated"
         ;;
 esac
 
