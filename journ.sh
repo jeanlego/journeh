@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o nounset -o pipefail
+
 # are set internally but exposed
 DATE=""
 ENTRY_NAME=""
@@ -9,6 +11,9 @@ TO=""
 # can be overriden by conf later
 THIS_DIR=$(dirname $(readlink -f $0))
 JOURNAL_DIR="$HOME/.journeh"
+TEMPLATE_NAME=".journ_template"
+TEMPLATE_LOCATION=""
+FILE_EXT="md"
 CONTEXT_BEFORE=1
 CONTEXT_AFTER=1
 # CONTEXT=1
@@ -17,22 +22,32 @@ OLDEST_FIRST=0
 # day 1 since, day 0 would break some of the logic
 EPOCH=$(date -d "@1" +%F)
 
+MODIFIED_FILES=()
+
+function find_template() {
+	find "${1}" -type f -name "${TEMPLATE_NAME}.*" | xargs ls -t | head -n 1
+}
+
+function localize_template() {
+        TEMPLATE_LOCATION="$( find_template "${PWD}" )"
+        [ "_" != "_${TEMPLATE_LOCATION}" ] || TEMPLATE_LOCATION="$( find_template "${JOURNAL_DIR}" )"
+        [ "_" != "_${TEMPLATE_LOCATION}" ] || TEMPLATE_LOCATION="$( find_template "${THIS_DIR}" )"
+        FILE_EXT=${TEMPLATE_LOCATION##*.}
+}
+
 function init_file() {
-    if [ ! -f "$1" ];
-    then
-        template="$JOURNAL_DIR/.template.md"
-        [ ! -f template ] && template="${PWD}/template.md"
-        [ ! -f template ] && template="${THIS_DIR}/template.md"
-
-        for VARNAME in $(grep -P -o -e '\$[\{]?(\w+)*[\}]?' "$template" | sort -u); do     
-            VARNAME2=$(echo "$VARNAME"| sed -e 's|^\${||g' -e 's|}$||g' -e 's|^\$[^(]||g' );
-            VAR_VALUE2=${!VARNAME2};
-
-            if [ "_" != "_$VAR_VALUE2" ]; then
-                sed  "s|$VARNAME|$VAR_VALUE2|g" "$template" >> "$1"; 
-            fi      
-        done
+    if [ ! -f "$JOURNAL_DIR/$1.${FILE_EXT}" ]; then
+	touch "$JOURNAL_DIR/$1.${FILE_EXT}"
+        if [ -f "${TEMPLATE_LOCATION}" ]; then
+	    eval "echo \"$(cat ${TEMPLATE_LOCATION})\"" > "$JOURNAL_DIR/$1.${FILE_EXT}"
+	fi
     fi
+}
+
+function clone_file() {
+    MODIFIED_FILES+=( "$JOURNAL_DIR/$1.${FILE_EXT}" )
+    cat "$JOURNAL_DIR/$1.${FILE_EXT}" > "$JOURNAL_DIR/$1.${FILE_EXT}.swap"
+    printf "" > "$JOURNAL_DIR/$1.${FILE_EXT}.modified"
 }
 
 function write_back() {
@@ -43,29 +58,39 @@ function write_back() {
             '<!--BEGIN-'*'-->')
                 lines=${lines/<\!--BEGIN-/} 
                 lines=${lines/-->/} 
-                filename="$JOURNAL_DIR/$lines.md"
-                rm "$filename" &> /dev/null
+                filename="$JOURNAL_DIR/$lines.${FILE_EXT}"
             ;;
             *)
-                echo "$lines" >> "$filename"
+                echo "$lines" >> "$filename.modified"
             ;;
         esac
     done < "$1"
+    
+    # now check if the modified files don't match the swap files, if so write back
+    for modified_file in "${MODIFIED_FILES[@]}"; do
+        #returns false on diff, making the if a bit counter intuitive
+	if ! diff "${modified_file}.swap" "${modified_file}.modified" -q &>/dev/null; then
+            cat "${modified_file}.modified" > "${modified_file}"
+        fi
+	rm "${modified_file}.modified" "${modified_file}.swap"
+    done
+
 }
 
 function load_entry() {
     local _starts_at
     {
-        [ -f "$JOURNAL_DIR/$1.md" ] && [ -n "$(tail -c1 "$JOURNAL_DIR/$1.md")" ] &&\
+        [ -f "$JOURNAL_DIR/$1.${FILE_EXT}" ] && [ -n "$(tail -c1 "$JOURNAL_DIR/$1.${FILE_EXT}")" ] &&\
             echo "";
         echo "<!--BEGIN-$1-->";
     } >> "$2";  
     _starts_at="$(wc -l "$2" | awk '{print $1}')"
     {
-            [ -f "$JOURNAL_DIR/$1.md" ] &&\
-            cat "$JOURNAL_DIR/$1.md";
-    } >> "$2"; 
-    echo "$_starts_at"
+            [ -f "$JOURNAL_DIR/$1.${FILE_EXT}" ] &&\
+            cat "$JOURNAL_DIR/$1.${FILE_EXT}";
+    } >> "$2";
+
+    clone_file "$1"	
 }
 
 function split() {
@@ -128,12 +153,12 @@ function parse_args() {
             ;;
 
         _*)
+	    set -o errexit
             case "_$*" in
                 _*' to '*)
                     mapfile -t values <<< "$(echo "$*" | split " to ")"
                     FROM="$(date -d"${values[0]}" +%F)"
                     TO="$(date -d"${values[1]}" +%F)"
-
                     ;;
                 _*' from '*)
                     mapfile -t values <<< "$(echo "$*" | split " from ")"
@@ -145,7 +170,8 @@ function parse_args() {
                     TO="$FROM"
                     ;;
             esac
-            ;;
+	    set +o errexit
+	    ;;
     esac
 }
 
@@ -198,9 +224,9 @@ function journeh() {
     fi
 
     local _tmp_file
-    _tmp_file=$(mktemp --suffix=.md)
-    local _line_number
-    _line_number=0
+    _tmp_file=$(mktemp --suffix=".${FILE_EXT}")
+    
+    localize_template 
 
     # sync with remote
     [[ -z $REMOTE ]] && git pull
@@ -220,8 +246,8 @@ function journeh() {
         done
     fi
 
-    init_file "$JOURNAL_DIR/$ENTRY_NAME.md"
-    _line_number="$(load_entry "$ENTRY_NAME" "$_tmp_file")"
+    init_file "$ENTRY_NAME"
+    load_entry "$ENTRY_NAME" "$_tmp_file"
 
     if [ "$OLDEST_FIRST" == "0" ];
     then 
@@ -239,7 +265,7 @@ function journeh() {
     fi
 
     # open for changes and writeback on success
-    vim +"$_line_number" "$_tmp_file" && write_back "$_tmp_file"
+    "${EDITOR:-vim}" "$_tmp_file" && write_back "$_tmp_file"
 
     # push sync with remote
     git add . &> /dev/null
